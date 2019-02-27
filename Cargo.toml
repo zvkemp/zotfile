@@ -1,0 +1,9 @@
+[package]
+name = "zotfile"
+version = "0.1.0"
+authors = ["zvkemp <zvkemp@gmail.com>"]
+edition = "2018"
+
+[dependencies]
+serde = "*"
+handlebars = "*"
