@@ -1,10 +1,21 @@
+// Top-level todos:
+// - add an interaction layer (Cursive or termion) to show
+//   diffs and interactively update the templates or local files
+// - build diff of template and existing file
+// - add CLI options
+// - add host configs
+// - add template configs
+// - add callbacks/hooks to run scripts (package manager, nvim update, etc)
+// - automatic host detection; make it easy to set up new host based on platform templates
+// - coordinate updating multiple templates in one command
+// - separate config/template repository; maintain local checkout from git
+//
 fn main() {
     let mut template = Template::new(
             "templates/test.handlebars",
             "test/test.conf",
             HostConfig { username: String::from("zach") }
         );
-
 
     println!("{}", template.render());
 }
@@ -49,7 +60,8 @@ impl Template {
 
     pub fn render(&self) -> String {
         use handlebars::Handlebars;
-        let mut reg = Handlebars::new();
+        let reg = Handlebars::new();
+        println!("{}", to_json(&self));
         reg.render_template(&self.template_string, &to_json(&self)).unwrap()
     }
 }
@@ -72,6 +84,7 @@ impl Serialize for Template {
     where
         S: Serializer,
     {
+        // TODO: add 'platform' to top level
         let mut s = serializer.serialize_struct("Template", 2)?;
         s.serialize_field("host_config", &self.host_config)?;
         s.serialize_field("target_path", &self.target_path)?;
