@@ -15,7 +15,7 @@ fn main() {
     let mut template = Template::new_from_file(
             "templates/test/hello.hbs",
             &target_path,
-            HostConfig { username: String::from("zach") },
+            HostConfig::default(),
             None,
         );
 
@@ -83,14 +83,24 @@ use std::path::Path;
 use handlebars::to_json;
 use toml;
 
-type Custom = Option<toml::Value>;
+type Config = Option<toml::Value>;
 
 #[derive(Debug)]
 pub struct Template {
     host_config: HostConfig,
     template_string: String,
     target_path: String,
-    custom: Custom,
+    custom: Config, // not sure what this will do yet
+    template_config: Config // template-specific variables
+}
+
+type Distro = Option<String>;
+
+#[derive(Debug)]
+pub enum Platform {
+    Linux(Distro),
+    Darwin,
+    Unknown
 }
 
 // TODO:
@@ -98,24 +108,47 @@ pub struct Template {
 #[derive(Debug)]
 pub struct HostConfig {
     username: String,
+    hostname: String,
+    platform: Platform,
 }
 
 mod util {
+    use super::Platform;
+
     pub fn whoami<'a>() -> String {
         let stdout = std::process::Command::new("whoami").output().expect("tried to get username").stdout;
         std::str::from_utf8(&stdout).expect("").trim().into()
+    }
+
+    pub fn hostname() -> String {
+        let stdout = std::process::Command::new("uname").args(&["-n"]).output().expect("tried to get username").stdout;
+        std::str::from_utf8(&stdout).expect("").trim().into()
+    }
+
+    pub fn platform() -> Platform {
+        let stdout = std::process::Command::new("uname").args(&["-o"]).output().expect("tried to get username").stdout;
+        let p = std::str::from_utf8(&stdout).expect("").trim();
+        match p {
+            "GNU/Linux" => Platform::Linux(None),
+            _ => Platform::Unknown
+        }
     }
 }
 
 impl HostConfig {
     pub fn default() -> Self {
-        HostConfig { username: util::whoami() }
+        dbg!(HostConfig {
+            username: util::whoami(),
+            hostname: util::hostname(),
+            platform: util::platform(),
+            // TODO: specific
+        })
     }
 }
 
 
 impl Template {
-    pub fn new_from_file(template_path: &str, target_path: &str, host_config: HostConfig, custom: Custom) -> Self {
+    pub fn new_from_file(template_path: &str, target_path: &str, host_config: HostConfig, custom: Config) -> Self {
         fn read_template(path: &str) -> std::io::Result<String> {
             use std::fs::File;
             use std::io::prelude::*;
@@ -128,15 +161,20 @@ impl Template {
             Ok(contents)
         }
 
-        Self::new(&read_template(template_path).unwrap(), target_path, host_config, custom)
+        Self::new(&read_template(template_path).unwrap(), target_path, host_config, custom, None)
     }
 
-    pub fn new(template_string: &str, target_path: &str, host_config: HostConfig, custom: Custom) -> Self {
+    pub fn new(template_string: &str,
+               target_path: &str,
+               host_config: HostConfig,
+               custom: Config,
+               template_config: Config) -> Self {
         Template {
             host_config,
             target_path: String::from(target_path),
             template_string: String::from(template_string),
-            custom
+            custom,
+            template_config
         }
     }
 
@@ -215,7 +253,7 @@ mod test {
 
     #[test]
     fn test_rendering_template_with_custom_values() {
-        let custom: Custom = "[alternate_greeting]\nen = \"greetings!\"".parse::<toml::Value>().ok();
+        let custom: Config = "[alternate_greeting]\nen = \"greetings!\"".parse::<toml::Value>().ok();
         let tmpl = Template::new_from_file(
             "templates/test/hello.hbs",
             "target/test_out/hello.conf",
