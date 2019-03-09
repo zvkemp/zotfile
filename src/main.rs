@@ -11,14 +11,72 @@
 // - separate config/template repository; maintain local checkout from git
 //
 fn main() {
+    let target_path = String::from("target/test_out/test.conf");
     let mut template = Template::new_from_file(
             "templates/test/hello.hbs",
-            "test/test.conf",
+            &target_path,
             HostConfig { username: String::from("zach") },
             None,
         );
 
     println!("{}", template.render());
+
+    let mut less = std::process::Command::new("less");
+    let mut child = less.stdin(std::process::Stdio::piped()).spawn().unwrap();
+    use std::io::Write;
+
+    // TODO:
+    // commands (apply changes similar to git -p)?
+    //
+    // patch apply:
+    //
+    // stdin | git diff --no-index target/file/to/change - | patch -p1 target/file/to/change
+    //
+    // could intercept the second pipe and interactively stage individual hunks
+    child.stdin.as_mut().map(|x| {
+        x.write_all(template.diff().as_bytes()).ok();
+    });
+
+    child.wait().unwrap();
+
+    use ansi_term::Colour;
+    use std::io;
+    use std::fs::File;
+    use std::path::Path;
+    use std::error::Error;
+
+    println!("Apply changes? {} will be overwritten. {}",
+             Colour::Green.paint(&target_path),
+             Colour::Yellow.paint("[Y/n]"));
+
+    let mut input = String::new();
+    match io::stdin().read_line(&mut input) {
+        Ok(n) => {
+            println!("{}", Colour::Green.paint(format!("Ok: {}", input)));
+            match input.as_str().trim() {
+                "y" | "Y" => {
+                    println!("{}", Colour::Yellow.paint(format!("saving `{}`...", &target_path)));
+
+                    let path = Path::new(&target_path);
+                    let mut file = match File::create(&path) {
+                        Err(e) => panic!("couldn't create {}: {}", path.display(), e.description()),
+                        Ok(file) => file
+                    };
+
+                    match file.write_all(template.render().as_bytes()) {
+                        Err(e) => panic!("couldn't write {}: {}", path.display(), e.description()),
+                        Ok(_) => println!("{}", Colour::Green.paint("Done!")),
+                    }
+                }
+                _ => println!("n")
+            }
+        }
+
+        Err(n) => {
+            println!("{}", Colour::Red.paint(format!("error: {}", n)));
+        }
+    }
+
 }
 
 use std::path::Path;
@@ -85,8 +143,30 @@ impl Template {
     pub fn render(&self) -> String {
         use handlebars::Handlebars;
         let reg = Handlebars::new();
-        println!("{}", to_json(&self));
+        // println!("{}", to_json(&self));
         reg.render_template(&self.template_string, &to_json(&self)).unwrap()
+    }
+
+    pub fn diff(&self) -> String {
+        use std::io::Write;
+        use std::process::{Command, Stdio};
+        // FIXME stop unwrapping
+
+        let mut p = Command::new("git")
+            .stderr(Stdio::piped())
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            // "color" option ensures ansi codes are rendered into the stdout pipe
+            .args(&["diff", "--no-index", "--color", &self.target_path, "-"])
+            .spawn()
+            .unwrap();
+
+        p.stdin.as_mut().map(|x| x.write_all(self.render().as_bytes()));
+
+        let output = p.wait_with_output().unwrap();
+        let result = String::from_utf8(output.stdout).unwrap();
+        // println!("{}", &result);
+        result
     }
 }
 
@@ -130,7 +210,7 @@ mod test {
             None,
         );
 
-        assert_eq!(tmpl.render(), format!("hello {}\n", util::whoami()));
+        assert_eq!(tmpl.render(), format!("hello {}\nHello!\n", util::whoami()));
     }
 
     #[test]
@@ -142,6 +222,8 @@ mod test {
             HostConfig::default(),
             custom
         );
+
+        tmpl.diff();
 
         assert_eq!(tmpl.render(), format!("hello {}\ngreetings!\n", util::whoami()));
     }
