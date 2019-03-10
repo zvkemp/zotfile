@@ -1,10 +1,5 @@
 // Top-level todos:
-// - add an interaction layer (Cursive or termion) to show
-//   diffs and interactively update the templates or local files
-// - build diff of template and existing file
 // - add CLI options
-// - add host configs
-// - add template configs
 // - add callbacks/hooks to run scripts (package manager, nvim update, etc)
 // - automatic host detection; make it easy to set up new host based on platform templates
 // - coordinate updating multiple templates in one command
@@ -36,8 +31,6 @@ fn main() {
       (@arg MODULE: -m --module +takes_value "module to process")
     ).get_matches();
 
-    dbg!(&matches); // FIXME use these
-
     let args = matches.args;
     let module = args.get("MODULE").expect("please supply a module").vals.get(0).unwrap();
     let target = args.get("TARGET").expect("please supply a target").vals.get(0).unwrap();
@@ -51,88 +44,115 @@ fn main() {
         contents.parse::<toml::Value>().ok()
     };
 
-    let template = Template::new_from_file(
-        // FIXME: use module, loop over templates in dir
-            "modules/tmux/templates/tmux.conf.hbs",
-            HostConfig::default(),
-            custom_config
-        );
+    let module = Module::new(module.to_str().unwrap(), custom_config);
 
-    let target_path = template.target_path().expect("target path exists");
-    let mut less = std::process::Command::new("less");
-    let mut child = less.stdin(std::process::Stdio::piped()).spawn().unwrap();
+    module.process_templates().unwrap();
+}
 
-    // TODO:
-    // commands (apply changes similar to git -p)?
-    //
-    // patch apply:
-    //
-    // stdin | git diff --no-index target/file/to/change - | patch -p1 target/file/to/change
-    //
-    // could intercept the second pipe and interactively stage individual hunks
-    let diff = template.diff();
+pub struct Module<'a> {
+    name: &'a str,
+    custom_config: Config
+}
 
-    let file_exists = Path::new(target_path).is_file();
+use std::fs;
 
-    if diff.is_empty() && file_exists {
-        println!("{} {}",
-                 Colour::Green.bold().paint(target_path),
-                 Colour::Cyan.bold().paint("is up to date."))
-    } else {
-        child.stdin.as_mut().map(|x| {
-            x.write_all(template.diff().as_bytes()).ok();
-        });
+impl<'a> Module<'a> {
+    pub fn new(name: &'a str, custom_config: Config) -> Self {
+        Module { name, custom_config }
+    }
 
-        child.wait().unwrap();
+    pub fn process_templates(&self) -> Result<(), std::io::Error> {
+        let host_config = HostConfig::default();
+        for path in self.template_paths()? {
+            let template = Template::new_from_file(
+                    path.unwrap().path().to_str().expect(""),
+                    &host_config,
+                    &self.custom_config
+                );
 
-        if file_exists {
-            println!("{} {} {}",
-                     Colour::Yellow.paint("Apply changes?"),
-                     Colour::Green.bold().paint(target_path),
-                     Colour::Yellow.bold().paint("will be overwritten. [Y/n]"));
-        } else {
-            println!("{} {} {}",
-                     Colour::Yellow.bold().paint(target_path),
-                     Colour::Green.bold().paint("does not yet exist. Proceed?"),
-                     Colour::Yellow.bold().paint("[Y/n]"));
-        }
+            let target_path = template.target_path().expect("target path exists");
+            let mut less = std::process::Command::new("less");
+            let mut child = less.stdin(std::process::Stdio::piped()).spawn().unwrap();
 
-        let mut input = String::new();
-        match io::stdin().read_line(&mut input) {
-            Ok(_n) => {
-                match input.as_str().trim() {
-                    "y" | "Y" => {
-                        println!("{}", Colour::Yellow.paint(format!("saving `{}`...", &target_path)));
+            // TODO:
+            // commands (apply changes similar to git -p)?
+            //
+            // patch apply:
+            //
+            // stdin | git diff --no-index target/file/to/change - | patch -p1 target/file/to/change
+            //
+            // could intercept the second pipe and interactively stage individual hunks
+            let diff = template.diff();
 
-                        let path = Path::new(&target_path);
-                        let mut file = match File::create(&path) {
-                            Err(e) => panic!("couldn't create {}: {}", path.display(), e.description()),
-                            Ok(file) => file
-                        };
+            let file_exists = Path::new(target_path).is_file();
 
-                        match file.write_all(template.render_with_warning().as_bytes()) {
-                            Err(e) => panic!("couldn't write {}: {}", path.display(), e.description()),
-                            Ok(_) => println!("{}", Colour::Green.paint("Done!")),
+            if diff.is_empty() && file_exists {
+                println!("{} {}",
+                         Colour::Green.bold().paint(target_path),
+                         Colour::Cyan.bold().paint("is up to date."))
+            } else {
+                child.stdin.as_mut().map(|x| {
+                    x.write_all(template.diff().as_bytes()).ok();
+                });
+
+                child.wait().unwrap();
+
+                if file_exists {
+                    println!("{} {} {}",
+                             Colour::Yellow.paint("Apply changes?"),
+                             Colour::Green.bold().paint(target_path),
+                             Colour::Yellow.bold().paint("will be overwritten. [Y/n]"));
+                } else {
+                    println!("{} {} {}",
+                             Colour::Yellow.bold().paint(target_path),
+                             Colour::Green.bold().paint("does not yet exist. Proceed?"),
+                             Colour::Yellow.bold().paint("[Y/n]"));
+                }
+
+                let mut input = String::new();
+                match io::stdin().read_line(&mut input) {
+                    Ok(_n) => {
+                        match input.as_str().trim() {
+                            "y" | "Y" => {
+                                println!("{}", Colour::Yellow.paint(format!("saving `{}`...", &target_path)));
+
+                                let path = Path::new(&target_path);
+                                let mut file = match File::create(&path) {
+                                    Err(e) => panic!("couldn't create {}: {}", path.display(), e.description()),
+                                    Ok(file) => file
+                                };
+
+                                match file.write_all(template.render_with_warning().as_bytes()) {
+                                    Err(e) => panic!("couldn't write {}: {}", path.display(), e.description()),
+                                    Ok(_) => println!("{}", Colour::Green.paint("Done!")),
+                                }
+                            }
+                            _ => ()
                         }
                     }
-                    _ => ()
+
+                    Err(n) => {
+                        println!("{}", Colour::Red.paint(format!("error: {}", n)));
+                    }
                 }
             }
-
-            Err(n) => {
-                println!("{}", Colour::Red.paint(format!("error: {}", n)));
-            }
         }
+
+        Ok(())
+    }
+
+    fn template_paths(&self) -> std::io::Result<fs::ReadDir> {
+        fs::read_dir(Path::new(&format!("modules/{}/templates/", self.name)))
     }
 }
 
 type Config = Option<toml::Value>;
 
 #[derive(Debug)]
-pub struct Template {
-    host_config: HostConfig,
+pub struct Template<'a> {
+    host_config: &'a HostConfig,
     template_string: String,
-    custom: Config, // not sure what this will do yet
+    custom: &'a Config, // machine-specific config
     template_config: Config // template-specific variables
 }
 
@@ -145,8 +165,6 @@ pub enum Platform {
     Unknown
 }
 
-// TODO:
-// read from toml
 #[derive(Debug, Clone)]
 pub struct HostConfig {
     username: String,
@@ -183,7 +201,6 @@ impl HostConfig {
             username: util::whoami(),
             hostname: util::hostname(),
             platform: util::platform(),
-            // TODO: specific
         }
     }
 }
@@ -191,8 +208,8 @@ impl HostConfig {
 use std::collections::HashMap;
 use std::path::PathBuf;
 
-impl Template {
-    pub fn new_from_file(template_path: &str, host_config: HostConfig, custom: Config) -> Self {
+impl<'a> Template<'a> {
+    pub fn new_from_file(template_path: &str, host_config: &'a HostConfig, custom: &'a Config) -> Self {
         fn read_template(path: &str) -> std::io::Result<(String, String)> {
             let file = File::open(path)?;
             let mut buf_reader = BufReader::new(file);
@@ -218,15 +235,15 @@ impl Template {
 
         // initial render of frontmatter only
         let template_config = Self::new(&template_config_raw,
-                                        host_config.clone(),
-                                        custom.clone(),
+                                        &host_config,
+                                        &custom,
                                         None).render().parse().ok();
         Self::new(&template, host_config, custom, template_config)
     }
 
     pub fn new(template_string: &str,
-               host_config: HostConfig,
-               custom: Config,
+               host_config: &'a HostConfig,
+               custom: &'a Config,
                template_config: Config) -> Self {
         Template {
             host_config,
@@ -338,7 +355,7 @@ impl Serialize for HostConfig {
     }
 }
 
-impl Serialize for Template {
+impl<'a> Serialize for Template<'a> {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: Serializer,
@@ -353,6 +370,7 @@ impl Serialize for Template {
     }
 }
 
+//  FIXME: these tests need to be updated
 #[cfg(test)]
 mod test {
     use super::*;
