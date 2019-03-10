@@ -10,9 +10,19 @@
 // - coordinate updating multiple templates in one command
 // - separate config/template repository; maintain local checkout from git
 //
+
+use ansi_term::Colour;
+use handlebars::Handlebars;
+use handlebars::to_json;
+use std::error::Error;
 use std::fs::File;
-use std::io::prelude::*;
+use std::io;
 use std::io::BufReader;
+use std::io::Write;
+use std::io::prelude::*;
+use std::path::Path;
+use std::process::{Command, Stdio};
+use toml;
 
 fn main() {
     let target_path = String::from("/home/zach/.tmux.conf");
@@ -25,18 +35,15 @@ fn main() {
         contents.parse::<toml::Value>().ok()
     };
 
-    let mut template = Template::new_from_file(
+    let template = Template::new_from_file(
             "modules/tmux/templates/tmux.conf.hbs",
             &target_path,
             HostConfig::default(),
-            dbg!(custom_config)
+            custom_config
         );
-
-    println!("{}", template.render());
 
     let mut less = std::process::Command::new("less");
     let mut child = less.stdin(std::process::Stdio::piped()).spawn().unwrap();
-    use std::io::Write;
 
     // TODO:
     // commands (apply changes similar to git -p)?
@@ -46,55 +53,53 @@ fn main() {
     // stdin | git diff --no-index target/file/to/change - | patch -p1 target/file/to/change
     //
     // could intercept the second pipe and interactively stage individual hunks
-    child.stdin.as_mut().map(|x| {
-        x.write_all(template.diff().as_bytes()).ok();
-    });
+    let diff = template.diff();
 
-    child.wait().unwrap();
+    if diff.is_empty() {
+        println!("{} {}",
+                 Colour::Green.bold().paint(&target_path),
+                 Colour::Cyan.bold().paint("is up to date."))
 
-    use ansi_term::Colour;
-    use std::io;
-    use std::fs::File;
-    use std::path::Path;
-    use std::error::Error;
+    } else {
+        child.stdin.as_mut().map(|x| {
+            x.write_all(template.diff().as_bytes()).ok();
+        });
 
-    println!("Apply changes? {} will be overwritten. {}",
-             Colour::Green.paint(&target_path),
-             Colour::Yellow.paint("[Y/n]"));
+        child.wait().unwrap();
 
-    let mut input = String::new();
-    match io::stdin().read_line(&mut input) {
-        Ok(n) => {
-            println!("{}", Colour::Green.paint(format!("Ok: {}", input)));
-            match input.as_str().trim() {
-                "y" | "Y" => {
-                    println!("{}", Colour::Yellow.paint(format!("saving `{}`...", &target_path)));
+        println!("{} {} {}",
+                 Colour::Yellow.paint("Apply changes?"),
+                 Colour::Green.bold().paint(&target_path),
+                 Colour::Yellow.bold().paint("will be overwritten. [Y/n]"));
 
-                    let path = Path::new(&target_path);
-                    let mut file = match File::create(&path) {
-                        Err(e) => panic!("couldn't create {}: {}", path.display(), e.description()),
-                        Ok(file) => file
-                    };
+        let mut input = String::new();
+        match io::stdin().read_line(&mut input) {
+            Ok(n) => {
+                match input.as_str().trim() {
+                    "y" | "Y" => {
+                        println!("{}", Colour::Yellow.paint(format!("saving `{}`...", &target_path)));
 
-                    match file.write_all(template.render().as_bytes()) {
-                        Err(e) => panic!("couldn't write {}: {}", path.display(), e.description()),
-                        Ok(_) => println!("{}", Colour::Green.paint("Done!")),
+                        let path = Path::new(&target_path);
+                        let mut file = match File::create(&path) {
+                            Err(e) => panic!("couldn't create {}: {}", path.display(), e.description()),
+                            Ok(file) => file
+                        };
+
+                        match file.write_all(template.render().as_bytes()) {
+                            Err(e) => panic!("couldn't write {}: {}", path.display(), e.description()),
+                            Ok(_) => println!("{}", Colour::Green.paint("Done!")),
+                        }
                     }
+                    _ => ()
                 }
-                _ => println!("n")
+            }
+
+            Err(n) => {
+                println!("{}", Colour::Red.paint(format!("error: {}", n)));
             }
         }
-
-        Err(n) => {
-            println!("{}", Colour::Red.paint(format!("error: {}", n)));
-        }
     }
-
 }
-
-use std::path::Path;
-use handlebars::to_json;
-use toml;
 
 type Config = Option<toml::Value>;
 
@@ -150,22 +155,18 @@ mod util {
 
 impl HostConfig {
     pub fn default() -> Self {
-        dbg!(HostConfig {
+        HostConfig {
             username: util::whoami(),
             hostname: util::hostname(),
             platform: util::platform(),
             // TODO: specific
-        })
+        }
     }
 }
-
 
 impl Template {
     pub fn new_from_file(template_path: &str, target_path: &str, host_config: HostConfig, custom: Config) -> Self {
         fn read_template(path: &str) -> std::io::Result<String> {
-            use std::fs::File;
-            use std::io::prelude::*;
-            use std::io::BufReader;
 
             let file = File::open(path)?;
             let mut buf_reader = BufReader::new(file);
@@ -192,9 +193,7 @@ impl Template {
     }
 
     pub fn render(&self) -> String {
-        use handlebars::Handlebars;
         let reg = Handlebars::new();
-        // println!("{}", to_json(&self));
         let rendered = format!("{}\n{}", self.warning(), self.template_string);
         reg.render_template(&rendered, &to_json(&self)).unwrap()
     }
@@ -204,8 +203,6 @@ impl Template {
     }
 
     pub fn diff(&self) -> String {
-        use std::io::Write;
-        use std::process::{Command, Stdio};
         // FIXME stop unwrapping
 
         let mut p = Command::new("git")
