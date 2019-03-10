@@ -9,3 +9,5 @@ Usage:
 ```shell
 $ cargo run -- --target configs/manjaro.toml --module tmux
 ```
+
+Prior to asking for confirmation, this will show a diff of the rendered template(s) and the current state of the target files.
