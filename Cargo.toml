@@ -5,9 +5,10 @@ authors = ["zvkemp <zvkemp@gmail.com>"]
 edition = "2018"
 
 [dependencies]
-serde = "*"
+serde = { version = "1.0", features = ["derive"] }
 toml = "0.4"
 ansi_term = "*"
 handlebars = "*"
 clap = "2"
 dirs = "1.0.5"
+git2 = "*"

@@ -19,6 +19,9 @@ use std::path::Path;
 use std::process::{Command, Stdio};
 use toml;
 
+mod repo_config;
+use crate::repo_config::{RepoConfig};
+
 #[macro_use]
 extern crate clap;
 
@@ -35,7 +38,7 @@ fn main() {
     let module = args.get("MODULE").expect("please supply a module").vals.get(0).unwrap();
     let target = args.get("TARGET").expect("please supply a target").vals.get(0).unwrap();
 
-    let custom_config = {
+    let target_config = {
         let path = Path::new(target);
         let file = File::open(path).unwrap();
         let mut buf_reader = BufReader::new(file);
@@ -44,30 +47,80 @@ fn main() {
         contents.parse::<toml::Value>().ok()
     };
 
-    let module = Module::new(module.to_str().unwrap(), custom_config);
+    let module = Module::new(module.to_str().unwrap(), target_config);
 
+    module.process_repos().unwrap();
     module.process_templates().unwrap();
 }
 
 pub struct Module<'a> {
     name: &'a str,
-    custom_config: Config
+    target_config: Config,
+    host_config: HostConfig,
+    module_config: Config,
 }
 
 use std::fs;
 
+use serde::{Serialize, Deserialize};
+
 impl<'a> Module<'a> {
-    pub fn new(name: &'a str, custom_config: Config) -> Self {
-        Module { name, custom_config }
+    pub fn new(name: &'a str, target_config: Config) -> Self {
+        let host_config = HostConfig::default();
+        let mut module = Module { host_config, name, target_config, module_config: None };
+        module.maybe_load_module_config();
+        module
+    }
+
+    fn maybe_load_module_config(&mut self) {
+        let conf_path = format!("modules/{}/config.toml", self.name);
+        let path = Path::new(&conf_path);
+        if !path.is_file() { return; }
+
+        let template = Template::new_from_file(
+            &conf_path,
+            &self.host_config,
+            &self.target_config,
+            &None,
+        ).render();
+
+        let module_config = template.parse::<toml::Value>();
+        let module_config = module_config.unwrap();
+
+        self.module_config = Some(module_config);
+
+    }
+
+    pub fn process_repos(&self) -> Result<(), std::io::Error> {
+        match self.module_config {
+            Some(ref toml) => {
+                match &toml["repos"] {
+                    toml::Value::Array(v) => {
+                        for r in v.iter() {
+                            let repo = r.clone().try_into::<RepoConfig>().expect("hmm");
+                            repo.go_do();
+                        }
+                    },
+
+                    _ => { dbg!(":("); }
+                }
+                // for repo in (&toml["repos"]).iter() {
+                //     dbg!(repo);
+                // }
+            },
+            _ => { panic!("bar"); }
+        }
+
+        Ok(())
     }
 
     pub fn process_templates(&self) -> Result<(), std::io::Error> {
-        let host_config = HostConfig::default();
         for path in self.template_paths()? {
             let template = Template::new_from_file(
                     path.unwrap().path().to_str().expect(""),
-                    &host_config,
-                    &self.custom_config
+                    &self.host_config,
+                    &self.target_config,
+                    &None,
                 );
 
             let target_path = template.target_path().expect("target path exists");
@@ -152,8 +205,9 @@ type Config = Option<toml::Value>;
 pub struct Template<'a> {
     host_config: &'a HostConfig,
     template_string: String,
-    custom: &'a Config, // machine-specific config
-    template_config: Config // template-specific variables
+    target_config: &'a Config, // machine-specific config
+    module_config: &'a Config, // module-specific config, e.g., modules/<mod>/config.toml
+    template_config: Config    // template-specific variables
 }
 
 type Distro = Option<String>;
@@ -209,7 +263,11 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 
 impl<'a> Template<'a> {
-    pub fn new_from_file(template_path: &str, host_config: &'a HostConfig, custom: &'a Config) -> Self {
+    pub fn new_from_file(
+        template_path: &str,
+        host_config: &'a HostConfig,
+        target_config: &'a Config,
+        module_config: &'a Config) -> Self {
         fn read_template(path: &str) -> std::io::Result<(String, String)> {
             let file = File::open(path)?;
             let mut buf_reader = BufReader::new(file);
@@ -236,19 +294,22 @@ impl<'a> Template<'a> {
         // initial render of frontmatter only
         let template_config = Self::new(&template_config_raw,
                                         &host_config,
-                                        &custom,
-                                        None).render().parse().ok();
-        Self::new(&template, host_config, custom, template_config)
+                                        &target_config,
+                                        None,
+                                        &None).render().parse().ok();
+        Self::new(&template, host_config, target_config, template_config, module_config)
     }
 
     pub fn new(template_string: &str,
                host_config: &'a HostConfig,
-               custom: &'a Config,
-               template_config: Config) -> Self {
+               target_config: &'a Config,
+               template_config: Config,
+               module_config: &'a Config) -> Self {
         Template {
             host_config,
             template_string: String::from(template_string),
-            custom,
+            target_config,
+            module_config,
             template_config
         }
     }
@@ -298,7 +359,7 @@ impl<'a> Template<'a> {
     }
 
     pub fn copy_command(&self) -> String {
-        if let Some(conf) = &self.custom {
+        if let Some(conf) = &self.target_config {
             match conf.get("clipboard") {
                 Some(ref tv) => {
                     let s = tv.as_str().unwrap().clone();
@@ -319,13 +380,18 @@ impl<'a> Template<'a> {
 
     pub fn dirs(&self) -> HashMap<&str, PathBuf> {
         let mut h = HashMap::new();
-        dirs::home_dir().map(|d| h.insert("home", d));
-        dirs::config_dir().map(|d| h.insert("config", d));
+        dirs::home_dir().map(|d| {
+            h.insert("home", d.clone());
+            // NOTE: dirs::config_dir() points to ~/Library/Preferences, which is not what we want
+            // in most cases.
+            h.insert("config", d.join(Path::new(".config")));
+        });
+
         h
     }
 }
 
-use serde::ser::{Serialize, SerializeStruct, Serializer};
+use serde::ser::{SerializeStruct, Serializer};
 
 impl Serialize for Platform {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
@@ -362,10 +428,11 @@ impl<'a> Serialize for Template<'a> {
     {
         // TODO: add 'platform' to top level
         let mut s = serializer.serialize_struct("Template", 3)?;
-        s.serialize_field("host_config", &self.host_config)?;
-        s.serialize_field("custom", &self.custom)?;
+        s.serialize_field("host", &self.host_config)?;
+        s.serialize_field("target", &self.target_config)?;
+        s.serialize_field("module", &self.module_config)?;
         s.serialize_field("dirs", &self.dirs())?;
-        s.serialize_field("copy_command", &self.copy_command())?;
+        s.serialize_field("copy_command", &self.copy_command())?; // FIXME should this live under the target config?
         s.end()
     }
 }
