@@ -185,6 +185,7 @@ impl<'a> Module<'a> {
                                 println!("{}", Colour::Yellow.paint(format!("saving `{}`...", &target_path)));
 
                                 let path = Path::new(&target_path);
+                                mkdir_p(&path);
                                 let mut file = match File::create(&path) {
                                     Err(e) => panic!("couldn't create {}: {}", path.display(), e.description()),
                                     Ok(file) => file
@@ -213,3 +214,10 @@ impl<'a> Module<'a> {
         fs::read_dir(Path::new(&format!("modules/{}/templates/", self.name)))
     }
 }
+
+fn mkdir_p(path: &Path) -> () {
+    dbg!(path.parent().map(|x| {
+        std::fs::create_dir_all(x)
+    }));
+}
+
