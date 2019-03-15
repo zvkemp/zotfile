@@ -16,6 +16,7 @@ mod module;
 mod config;
 mod util;
 mod template;
+mod errors;
 
 use crate::module::Module;
 
@@ -41,10 +42,10 @@ fn main() {
         let mut buf_reader = BufReader::new(file);
         let mut contents = String::new();
         buf_reader.read_to_string(&mut contents).unwrap();
-        contents.parse::<toml::Value>().ok()
+        contents.parse::<toml::Value>().unwrap()
     };
 
-    let module = Module::new(module.to_str().unwrap(), target_config);
+    let module = Module::new(module.to_str().unwrap(), Some(target_config)).expect("couldn't load module config");
 
     module.process().unwrap();
 }

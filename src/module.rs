@@ -9,6 +9,7 @@ use serde::Deserialize;
 use crate::config::{Config, HostConfig};
 use crate::repo_config::RepoConfig;
 use crate::template::Template;
+use crate::errors;
 
 pub struct Module<'a> {
     name: &'a str,
@@ -26,7 +27,7 @@ use std::process::Stdio;
 use std::process::Command;
 
 impl AfterCommitHook {
-    pub fn process(&self) -> io::Result<()> {
+    pub fn process(&self) -> errors::Result<()> {
         match self.shell {
             Some(ref command) => {
                 println!("{}", Colour::Green.paint(format!("Running `{}`", command)));
@@ -52,17 +53,17 @@ impl AfterCommitHook {
 }
 
 impl<'a> Module<'a> {
-    pub fn new(name: &'a str, target_config: Config) -> Self {
+    pub fn new(name: &'a str, target_config: Config) -> errors::Result<Self> {
         let host_config = HostConfig::default();
         let mut module = Module { host_config, name, target_config, module_config: None };
-        module.maybe_load_module_config();
-        module
+        module.maybe_load_module_config()?;
+        Ok(module)
     }
 
-    fn maybe_load_module_config(&mut self) {
+    fn maybe_load_module_config(&mut self) -> errors::Result<()> {
         let conf_path = format!("modules/{}/config.toml", self.name);
         let path = Path::new(&conf_path);
-        if !path.is_file() { return; }
+        if !path.is_file() { return Ok(()); }
 
         let template = Template::new_from_file(
             &conf_path,
@@ -71,14 +72,13 @@ impl<'a> Module<'a> {
             &None,
         ).render();
 
-        let module_config = template.parse::<toml::Value>();
-        let module_config = module_config.unwrap();
+        let module_config = template.parse::<toml::Value>()?;
 
         self.module_config = Some(module_config);
-
+        Ok(())
     }
 
-    pub fn process(&self) -> Result<(), std::io::Error> {
+    pub fn process(&self) -> errors::Result<()> {
         self.process_repos()?;
         self.process_templates()?;
         self.process_after_commits()?;
