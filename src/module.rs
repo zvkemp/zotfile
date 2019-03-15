@@ -45,15 +45,15 @@ impl<'a> Module<'a> {
     pub fn process_repos(&self) -> Result<(), std::io::Error> {
         match self.module_config {
             Some(ref toml) => {
-                match &toml["repos"] {
-                    toml::Value::Array(v) => {
+                match &toml.get("repos") {
+                    Some(toml::Value::Array(v)) => {
                         for r in v.iter() {
                             let repo = r.clone().try_into::<RepoConfig>().expect("hmm");
-                            repo.go_do();
+                            repo.go_do().unwrap();
                         }
                     },
 
-                    _ => { dbg!(":("); }
+                    _ => { println!("No repos to clone, skipping"); }
                 }
                 // for repo in (&toml["repos"]).iter() {
                 //     dbg!(repo);
