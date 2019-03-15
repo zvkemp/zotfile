@@ -10,11 +10,12 @@ pub struct RepoConfig {
     sha: Option<String>,
 }
 
+// TODO: this *may* have too many security concerns to be worth it.
+// - maybe make the SHA required, so at least there is *some* vetting of the cloned source
+// - maybe just make it a static file downloader for a known commit on the remote repo
 impl RepoConfig {
     pub fn go_do(&self) -> Result<(), git2::Error> {
-        dbg!(self);
-
-        let repo = match Repository::open(&self.path) {
+        let _ = match Repository::open(&self.path) {
             Ok(repo) => {
                 repo.find_remote("origin")?.fetch(&["master"], None, None)?;
                 repo
