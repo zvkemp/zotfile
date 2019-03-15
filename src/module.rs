@@ -4,6 +4,8 @@ use std::fs::{self, File};
 use std::io::{self, Write};
 use std::path::Path;
 
+use serde::Deserialize;
+
 use crate::config::{Config, HostConfig};
 use crate::repo_config::RepoConfig;
 use crate::template::Template;
@@ -13,6 +15,40 @@ pub struct Module<'a> {
     target_config: Config,
     host_config: HostConfig,
     module_config: Config,
+}
+
+#[derive(Debug, Deserialize)]
+struct AfterCommitHook {
+    shell: Option<String>
+}
+
+use std::process::Stdio;
+use std::process::Command;
+
+impl AfterCommitHook {
+    pub fn process(&self) -> io::Result<()> {
+        match self.shell {
+            Some(ref command) => {
+                println!("{}", Colour::Green.paint(format!("Running `{}`", command)));
+                match command.split(' ').collect::<Vec<&str>>().as_slice() {
+                    [cmd, args..] => {
+                        let mut p = Command::new(cmd)
+                            .stdin(Stdio::piped())
+                            .stderr(Stdio::piped())
+                            .stdout(Stdio::piped())
+                            .args(args)
+                            .spawn()?;
+
+                        p.wait()?;
+                    },
+                    _ => ()
+                }
+            },
+
+            _ => ()
+        };
+        Ok(())
+    }
 }
 
 impl<'a> Module<'a> {
@@ -42,7 +78,15 @@ impl<'a> Module<'a> {
 
     }
 
-    pub fn process_repos(&self) -> Result<(), std::io::Error> {
+    pub fn process(&self) -> Result<(), std::io::Error> {
+        self.process_repos()?;
+        self.process_templates()?;
+        self.process_after_commits()?;
+
+        Ok(())
+    }
+
+    fn process_repos(&self) -> Result<(), std::io::Error> {
         match self.module_config {
             Some(ref toml) => {
                 match &toml.get("repos") {
@@ -65,7 +109,27 @@ impl<'a> Module<'a> {
         Ok(())
     }
 
-    pub fn process_templates(&self) -> Result<(), std::io::Error> {
+    fn process_after_commits(&self) -> Result<(), std::io::Error> {
+        match self.module_config {
+            Some(ref toml) => {
+                match &toml.get("after_commit") {
+                    Some(toml::Value::Array(v)) => {
+                        for r in v.iter() {
+                            let hook = r.clone().try_into::<AfterCommitHook>().expect("hmm");
+                            hook.process();
+                        }
+                    },
+                    _ => {}
+                }
+            },
+
+            _ => {}
+        };
+
+        Ok(())
+    }
+
+    fn process_templates(&self) -> Result<(), std::io::Error> {
         for path in self.template_paths()? {
             let template = Template::new_from_file(
                     path.unwrap().path().to_str().expect(""),

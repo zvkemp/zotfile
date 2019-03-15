@@ -1,3 +1,4 @@
+#![feature(slice_patterns)]
 // Top-level todos:
 // - add CLI options
 // - add callbacks/hooks to run scripts (package manager, nvim update, etc)
@@ -45,8 +46,7 @@ fn main() {
 
     let module = Module::new(module.to_str().unwrap(), target_config);
 
-    module.process_repos().unwrap();
-    module.process_templates().unwrap();
+    module.process().unwrap();
 }
 
 //  FIXME: these tests need to be updated
