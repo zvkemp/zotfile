@@ -2,4 +2,4 @@
 name = "neovim"
 
 [[after_commit]]
-shell = "nvim -c PlugIns -c exit -c exit"
+shell = "nvim --headless -c PlugIns -c exit -c exit"
