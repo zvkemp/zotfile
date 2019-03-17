@@ -3,7 +3,6 @@ use std::error::Error;
 use std::fs::{self, File};
 use std::io::{self, Write};
 use std::path::Path;
-use std::path::PathBuf;
 
 use serde::Deserialize;
 
@@ -118,13 +117,13 @@ impl<'a> Module<'a> {
         Ok(())
     }
 
-    fn process_after_commits(&self) -> Result<(), std::io::Error> {
+    fn process_after_commits(&self) -> errors::Result<()> {
         match self.module_config {
             Some(ref toml) => match &toml.get("after_commit") {
                 Some(toml::Value::Array(v)) => {
                     for r in v.iter() {
                         let hook = r.clone().try_into::<AfterCommitHook>().expect("hmm");
-                        hook.process();
+                        hook.process()?;
                     }
                 }
                 _ => {}

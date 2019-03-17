@@ -7,10 +7,6 @@
 // - separate config/template repository; maintain local checkout from git
 //
 
-use std::fs::File;
-use std::io::{prelude::*, BufReader};
-use std::path::Path;
-
 mod config;
 mod errors;
 mod module;
@@ -52,36 +48,3 @@ fn main() {
 
     dbg!(module.process()).unwrap();
 }
-
-//  FIXME: these tests need to be updated
-// #[cfg(test)]
-// mod test {
-//     use super::*;
-
-//     #[test]
-//     fn test_rendering_template() {
-//         let tmpl = Template::new_from_file(
-//             "templates/test/hello.hbs",
-//             "target/test_out/hello.conf",
-//             HostConfig::default(),
-//             None,
-//         );
-
-//         assert_eq!(tmpl.render(), format!("hello {}\nHello!\n", util::whoami()));
-//     }
-
-//     #[test]
-//     fn test_rendering_template_with_custom_values() {
-//         let custom: Config = "[alternate_greeting]\nen = \"greetings!\"".parse::<toml::Value>().ok();
-//         let tmpl = Template::new_from_file(
-//             "templates/test/hello.hbs",
-//             "target/test_out/hello.conf",
-//             HostConfig::default(),
-//             custom
-//         );
-
-//         tmpl.diff();
-
-//         assert_eq!(tmpl.render(), format!("hello {}\ngreetings!\n", util::whoami()));
-//     }
-// }

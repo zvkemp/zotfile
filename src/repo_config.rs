@@ -1,6 +1,5 @@
 use ansi_term::Colour;
-use git2::Repository;
-use git2::{ErrorClass, ErrorCode};
+use git2::{ErrorCode, Repository};
 use serde::{Deserialize, Serialize};
 
 use crate::errors;
