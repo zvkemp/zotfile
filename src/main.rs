@@ -38,7 +38,7 @@ fn main() {
     let target_config = config::load_target_config(target.to_str().unwrap()).unwrap();
     let module = Module::new(module.to_str().unwrap(), target_config).expect("couldn't load module config");
 
-    module.process().unwrap();
+    dbg!(module.process()).unwrap();
 }
 
 //  FIXME: these tests need to be updated

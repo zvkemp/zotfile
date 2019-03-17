@@ -23,7 +23,8 @@ impl<'a> Template<'a> {
         template_path: &str,
         host_config: &'a HostConfig,
         target_config: &'a Config,
-        module_config: &'a Config) -> Self {
+        module_config: &'a Config) -> errors::Result<Self> {
+
         fn read_template(path: &str) -> errors::Result<(String, String)> {
             let raw_contents = util::read_file_to_string(&Path::new(path))?;
             let mut frontmatter = String::new();
@@ -42,7 +43,7 @@ impl<'a> Template<'a> {
             Ok((contents, frontmatter))
         }
 
-        let (template, template_config_raw) = read_template(template_path).unwrap();
+        let (template, template_config_raw) = read_template(template_path)?;
 
         // initial render of frontmatter only
         let template_config = Self::new(&template_config_raw,
@@ -51,7 +52,7 @@ impl<'a> Template<'a> {
                                         None,
                                         &None).render().parse().ok();
 
-        Self::new(&template, host_config, target_config, template_config, module_config)
+        Ok(Self::new(&template, host_config, target_config, template_config, module_config))
     }
 
     pub fn new(template_string: &str,

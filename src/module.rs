@@ -3,6 +3,7 @@ use std::error::Error;
 use std::fs::{self, File};
 use std::io::{self, Write};
 use std::path::Path;
+use std::path::PathBuf;
 
 use serde::Deserialize;
 
@@ -71,7 +72,7 @@ impl<'a> Module<'a> {
             &self.host_config,
             &self.target_config,
             &None,
-        ).render();
+        )?.render();
 
         let module_config = template.parse::<toml::Value>()?;
 
@@ -87,7 +88,7 @@ impl<'a> Module<'a> {
         Ok(())
     }
 
-    fn process_repos(&self) -> Result<(), std::io::Error> {
+    fn process_repos(&self) -> errors::Result<()> {
         match self.module_config {
             Some(ref toml) => {
                 match &toml.get("repos") {
@@ -97,14 +98,13 @@ impl<'a> Module<'a> {
                             repo.go_do().unwrap();
                         }
                     },
-
                     _ => { println!("No repos to clone, skipping"); }
                 }
                 // for repo in (&toml["repos"]).iter() {
                 //     dbg!(repo);
                 // }
             },
-            _ => { panic!("bar"); }
+            _ => { println!("No repos to clone, skipping"); }
         }
 
         Ok(())
@@ -130,82 +130,9 @@ impl<'a> Module<'a> {
         Ok(())
     }
 
-    fn process_templates(&self) -> Result<(), std::io::Error> {
+    fn process_templates(&self) -> errors::Result<()> {
         for path in self.template_paths()? {
-            let template = Template::new_from_file(
-                    path.unwrap().path().to_str().expect(""),
-                    &self.host_config,
-                    &self.target_config,
-                    &None,
-                );
-
-            let target_path = template.target_path().expect("target path exists");
-            let mut less = std::process::Command::new("less");
-            let mut child = less.stdin(std::process::Stdio::piped()).spawn().unwrap();
-
-            // TODO:
-            // commands (apply changes similar to git -p)?
-            //
-            // patch apply:
-            //
-            // stdin | git diff --no-index target/file/to/change - | patch -p1 target/file/to/change
-            //
-            // could intercept the second pipe and interactively stage individual hunks
-            let diff = template.diff();
-
-            let file_exists = Path::new(target_path).is_file();
-
-            if diff.is_empty() && file_exists {
-                println!("{} {}",
-                         Colour::Green.bold().paint(target_path),
-                         Colour::Cyan.bold().paint("is up to date."))
-            } else {
-                child.stdin.as_mut().map(|x| {
-                    x.write_all(template.diff().as_bytes()).ok();
-                });
-
-                child.wait().unwrap();
-
-                if file_exists {
-                    println!("{} {} {}",
-                             Colour::Yellow.paint("Apply changes?"),
-                             Colour::Green.bold().paint(target_path),
-                             Colour::Yellow.bold().paint("will be overwritten. [Y/n]"));
-                } else {
-                    println!("{} {} {}",
-                             Colour::Yellow.bold().paint(target_path),
-                             Colour::Green.bold().paint("does not yet exist. Proceed?"),
-                             Colour::Yellow.bold().paint("[Y/n]"));
-                }
-
-                let mut input = String::new();
-                match io::stdin().read_line(&mut input) {
-                    Ok(_n) => {
-                        match input.as_str().trim() {
-                            "y" | "Y" => {
-                                println!("{}", Colour::Yellow.paint(format!("saving `{}`...", &target_path)));
-
-                                let path = Path::new(&target_path);
-                                mkdir_p(&path);
-                                let mut file = match File::create(&path) {
-                                    Err(e) => panic!("couldn't create {}: {}", path.display(), e.description()),
-                                    Ok(file) => file
-                                };
-
-                                match file.write_all(template.render_with_warning().as_bytes()) {
-                                    Err(e) => panic!("couldn't write {}: {}", path.display(), e.description()),
-                                    Ok(_) => println!("{}", Colour::Green.paint("Done!")),
-                                }
-                            }
-                            _ => ()
-                        }
-                    }
-
-                    Err(n) => {
-                        println!("{}", Colour::Red.paint(format!("error: {}", n)));
-                    }
-                }
-            }
+            self.process_template(path.unwrap())?;
         }
 
         Ok(())
@@ -213,6 +140,90 @@ impl<'a> Module<'a> {
 
     fn template_paths(&self) -> std::io::Result<fs::ReadDir> {
         fs::read_dir(Path::new(&format!("modules/{}/templates/", self.name)))
+    }
+
+    fn process_template(&self, path: std::fs::DirEntry) -> errors::Result<()> {
+        let template = Template::new_from_file(
+            // FIXME: should new_from_file take a path instead?
+            path.path().to_str().expect(""),
+            &self.host_config,
+            &self.target_config,
+            &None,
+        )?;
+
+        let target_path = template.target_path().expect("target path exists");
+        // TODO:
+        // commands (apply changes similar to git -p)?
+        //
+        // patch apply:
+        //
+        // stdin | git diff --no-index target/file/to/change - | patch -p1 target/file/to/change
+        //
+        // could intercept the second pipe and interactively stage individual hunks
+        let diff = template.diff();
+
+        let file_exists = Path::new(target_path).is_file();
+
+        if diff.is_empty() && file_exists {
+            println!("{} {}",
+                     Colour::Green.bold().paint(target_path),
+                     Colour::Cyan.bold().paint("is up to date."));
+
+            return Ok(());
+        }
+
+        let mut less = std::process::Command::new("less");
+        let mut child = less.stdin(std::process::Stdio::piped()).spawn().unwrap();
+
+        child.stdin.as_mut().map(|x| {
+            x.write_all(template.diff().as_bytes()).ok();
+        });
+
+        child.wait().unwrap();
+
+        if file_exists {
+            println!("{} {} {}",
+                     Colour::Yellow.paint("Apply changes?"),
+                     Colour::Green.bold().paint(target_path),
+                     Colour::Yellow.bold().paint("will be overwritten. [Y/n]"));
+        } else {
+            println!("{} {} {}",
+                     Colour::Yellow.bold().paint(target_path),
+                     Colour::Green.bold().paint("does not yet exist. Proceed?"),
+                     Colour::Yellow.bold().paint("[Y/n]"));
+        }
+
+        let mut input = String::new();
+
+        match io::stdin().read_line(&mut input) {
+            Ok(_n) => {
+                match input.as_str().trim() {
+                    "y" | "Y" => {
+                        println!("{}", Colour::Yellow.paint(format!("saving `{}`...", &target_path)));
+                        let path = Path::new(&target_path);
+                        mkdir_p(&path);
+                        let mut file = match File::create(&path) {
+                            Err(e) => panic!("couldn't create {}: {}", path.display(), e.description()),
+                            Ok(file) => file
+                        };
+
+                        match file.write_all(template.render_with_warning().as_bytes()) {
+                            Err(e) => panic!("couldn't write {}: {}", path.display(), e.description()),
+                            Ok(_) => {
+                                println!("{}", Colour::Green.paint("Done!"));
+                                Ok(())
+                            }
+                        }
+                    }
+                    _ => Ok(())
+                }
+            }
+
+            Err(n) => {
+                println!("{}", Colour::Red.paint(format!("error: {}", n)));
+                Ok(()) // FIXME: Err?
+            }
+        }
     }
 }
 
