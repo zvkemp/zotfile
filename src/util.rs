@@ -1,4 +1,10 @@
-use crate::config::Platform;
+use std::fs::File;
+use std::path::Path;
+use std::io::prelude::*;
+use std::io::BufReader;
+
+use crate::config::{Config, Platform};
+use crate::errors;
 
 pub fn whoami<'a>() -> String {
     let stdout = std::process::Command::new("whoami").output().expect("tried to get username").stdout;
@@ -17,4 +23,17 @@ pub fn platform() -> Platform {
         "GNU/Linux" => Platform::Linux(None),
         _ => Platform::Unknown
     }
+}
+
+pub fn read_file_to_string(path: &Path) -> errors::Result<String> {
+    let file = File::open(path).expect(&format!("file {:?} not found", path));
+    let mut buf_reader = BufReader::new(file);
+    let mut contents = String::new();
+    buf_reader.read_to_string(&mut contents)?;
+    Ok(contents)
+}
+
+pub fn load_toml_file(path: &Path) -> errors::Result<Config> {
+    let result = read_file_to_string(path)?.parse::<toml::Value>().ok();
+    Ok(result)
 }

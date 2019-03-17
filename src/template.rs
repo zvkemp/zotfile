@@ -1,12 +1,13 @@
 use handlebars::{Handlebars, to_json};
 use serde::ser::{Serialize, Serializer, SerializeStruct};
 use std::collections::HashMap;
-use std::fs::File;
-use std::io::{BufReader, prelude::*};
+use std::io::{prelude::*};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
 use crate::config::{Config, HostConfig};
+use crate::util;
+use crate::errors;
 
 #[derive(Debug)]
 pub struct Template<'a> {
@@ -23,12 +24,8 @@ impl<'a> Template<'a> {
         host_config: &'a HostConfig,
         target_config: &'a Config,
         module_config: &'a Config) -> Self {
-        fn read_template(path: &str) -> std::io::Result<(String, String)> {
-            let file = File::open(path)?;
-            let mut buf_reader = BufReader::new(file);
-            let mut raw_contents = String::new();
-            buf_reader.read_to_string(&mut raw_contents)?;
-
+        fn read_template(path: &str) -> errors::Result<(String, String)> {
+            let raw_contents = util::read_file_to_string(&Path::new(path))?;
             let mut frontmatter = String::new();
             let mut contents = String::new();
             let mut in_frontmatter = false;
@@ -44,6 +41,7 @@ impl<'a> Template<'a> {
 
             Ok((contents, frontmatter))
         }
+
         let (template, template_config_raw) = read_template(template_path).unwrap();
 
         // initial render of frontmatter only
@@ -153,6 +151,7 @@ impl<'a> Template<'a> {
                 None => panic!("clipboard not configured")
             }
         } else {
+            // None
             panic!("no...");
         }
     }
@@ -185,5 +184,14 @@ impl<'a> Serialize for Template<'a> {
         s.serialize_field("dirs", &self.dirs())?;
         s.serialize_field("copy_command", &self.copy_command())?; // FIXME should this live under the target config?
         s.end()
+    }
+}
+
+#[cfg(test)]
+mod test {
+
+    #[test]
+    fn test_sanity() {
+        assert!(true);
     }
 }

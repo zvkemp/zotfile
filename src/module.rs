@@ -11,6 +11,7 @@ use crate::repo_config::RepoConfig;
 use crate::template::Template;
 use crate::errors;
 
+#[derive(Debug)]
 pub struct Module<'a> {
     name: &'a str,
     target_config: Config,
@@ -221,3 +222,18 @@ fn mkdir_p(path: &Path) -> () {
     }));
 }
 
+#[cfg(test)]
+mod test {
+    use super::*;
+    use crate::config;
+
+    #[test]
+    fn test_module_config() {
+        let target = "configs/manjaro.toml";
+        let target_config = config::load_target_config("manjaro").unwrap();
+
+        dbg!(&target_config);
+
+        let module = dbg!(Module::new("test", target_config));
+    }
+}

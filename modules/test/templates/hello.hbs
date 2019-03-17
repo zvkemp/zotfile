@@ -1,3 +1,8 @@
+---
+target_path = "target/test_out/hello"
+other_value = "{{module.other_value}}
+---
+
 hello {{host.username}}
 {{#if custom.alternate_greeting.en~}}
 {{custom.alternate_greeting.en}}
