@@ -8,15 +8,15 @@
 //
 
 use std::fs::File;
-use std::io::{BufReader, prelude::*};
+use std::io::{prelude::*, BufReader};
 use std::path::Path;
 
-mod repo_config;
-mod module;
 mod config;
-mod util;
-mod template;
 mod errors;
+mod module;
+mod repo_config;
+mod template;
+mod util;
 
 use crate::module::Module;
 
@@ -30,13 +30,25 @@ fn main() {
       (about: "Multi-target config manager")
       (@arg TARGET: -t --target +takes_value "target config toml file")
       (@arg MODULE: -m --module +takes_value "module to process")
-    ).get_matches();
+    )
+    .get_matches();
 
     let args = matches.args;
-    let module = args.get("MODULE").expect("please supply a module").vals.get(0).unwrap();
-    let target = args.get("TARGET").expect("please supply a target").vals.get(0).unwrap();
+    let module = args
+        .get("MODULE")
+        .expect("please supply a module")
+        .vals
+        .get(0)
+        .unwrap();
+    let target = args
+        .get("TARGET")
+        .expect("please supply a target")
+        .vals
+        .get(0)
+        .unwrap();
     let target_config = config::load_target_config(target.to_str().unwrap()).unwrap();
-    let module = Module::new(module.to_str().unwrap(), target_config).expect("couldn't load module config");
+    let module =
+        Module::new(module.to_str().unwrap(), target_config).expect("couldn't load module config");
 
     dbg!(module.process()).unwrap();
 }

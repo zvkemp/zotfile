@@ -1,13 +1,13 @@
-use handlebars::{Handlebars, to_json};
-use serde::ser::{Serialize, Serializer, SerializeStruct};
+use handlebars::{to_json, Handlebars};
+use serde::ser::{Serialize, SerializeStruct, Serializer};
 use std::collections::HashMap;
-use std::io::{prelude::*};
+use std::io::prelude::*;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
 use crate::config::{Config, HostConfig};
-use crate::util;
 use crate::errors;
+use crate::util;
 
 #[derive(Debug)]
 pub struct Template<'a> {
@@ -15,7 +15,7 @@ pub struct Template<'a> {
     template_string: String,
     target_config: &'a Config, // machine-specific config
     module_config: &'a Config, // module-specific config, e.g., modules/<mod>/config.toml
-    template_config: Config    // template-specific variables
+    template_config: Config,   // template-specific variables
 }
 
 impl<'a> Template<'a> {
@@ -23,8 +23,8 @@ impl<'a> Template<'a> {
         template_path: &str,
         host_config: &'a HostConfig,
         target_config: &'a Config,
-        module_config: &'a Config) -> errors::Result<Self> {
-
+        module_config: &'a Config,
+    ) -> errors::Result<Self> {
         fn read_template(path: &str) -> errors::Result<(String, String)> {
             let raw_contents = util::read_file_to_string(&Path::new(path))?;
             let mut frontmatter = String::new();
@@ -33,10 +33,18 @@ impl<'a> Template<'a> {
 
             for (i, line) in raw_contents.lines().enumerate() {
                 match (i, line, in_frontmatter) {
-                    (0, "---", false) => { in_frontmatter = true; },
-                    (_, "---", true)  => { in_frontmatter = false; },
-                    (_, line, true)   => { (&mut frontmatter).push_str(&format!("{}\n", line)); },
-                    (_, line, false)  => { contents.push_str(&format!("{}\n", line)); }
+                    (0, "---", false) => {
+                        in_frontmatter = true;
+                    }
+                    (_, "---", true) => {
+                        in_frontmatter = false;
+                    }
+                    (_, line, true) => {
+                        (&mut frontmatter).push_str(&format!("{}\n", line));
+                    }
+                    (_, line, false) => {
+                        contents.push_str(&format!("{}\n", line));
+                    }
                 }
             }
 
@@ -46,26 +54,39 @@ impl<'a> Template<'a> {
         let (template, template_config_raw) = read_template(template_path)?;
 
         // initial render of frontmatter only
-        let template_config = Self::new(&template_config_raw,
-                                        &host_config,
-                                        &target_config,
-                                        None,
-                                        &None).render().parse().ok();
+        let template_config = Self::new(
+            &template_config_raw,
+            &host_config,
+            &target_config,
+            None,
+            &None,
+        )
+        .render()
+        .parse()
+        .ok();
 
-        Ok(Self::new(&template, host_config, target_config, template_config, module_config))
+        Ok(Self::new(
+            &template,
+            host_config,
+            target_config,
+            template_config,
+            module_config,
+        ))
     }
 
-    pub fn new(template_string: &str,
-               host_config: &'a HostConfig,
-               target_config: &'a Config,
-               template_config: Config,
-               module_config: &'a Config) -> Self {
+    pub fn new(
+        template_string: &str,
+        host_config: &'a HostConfig,
+        target_config: &'a Config,
+        template_config: Config,
+        module_config: &'a Config,
+    ) -> Self {
         Template {
             host_config,
             template_string: String::from(template_string),
             target_config,
             module_config,
-            template_config
+            template_config,
         }
     }
 
@@ -77,16 +98,18 @@ impl<'a> Template<'a> {
 
     pub fn render(&self) -> String {
         let reg = Handlebars::new();
-        reg.render_template(&self.template_string, &to_json(&self)).unwrap()
+        reg.render_template(&self.template_string, &to_json(&self))
+            .unwrap()
     }
 
     pub fn target_path(&self) -> Option<&str> {
         let o = match self.template_config {
             Some(ref c) => c.get("target_path"),
-            _ => None
+            _ => None,
         };
 
-        o.expect("target_path should be in template frontmatter").as_str()
+        o.expect("target_path should be in template frontmatter")
+            .as_str()
     }
 
     pub fn warning(&self) -> String {
@@ -101,14 +124,13 @@ impl<'a> Template<'a> {
         let mut result = String::new();
 
         let comment_formatter = match self.template_config {
-            Some(ref conf) => {
-                match conf.get("comment_format") {
-                    Some(toml) => toml.as_str(),
-                    _ => None
-                }
+            Some(ref conf) => match conf.get("comment_format") {
+                Some(toml) => toml.as_str(),
+                _ => None,
             },
-            _ => None
-        }.unwrap_or("# ");
+            _ => None,
+        }
+        .unwrap_or("# ");
 
         for part in parts {
             result.push_str(&format!("{}{}\n", comment_formatter, part));
@@ -125,11 +147,19 @@ impl<'a> Template<'a> {
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             // "color" option ensures ansi codes are rendered into the stdout pipe
-            .args(&["diff", "--no-index", "--color", &self.target_path().clone().unwrap(), "-"])
+            .args(&[
+                "diff",
+                "--no-index",
+                "--color",
+                &self.target_path().clone().unwrap(),
+                "-",
+            ])
             .spawn()
             .unwrap();
 
-        p.stdin.as_mut().map(|x| x.write_all(self.render_with_warning().as_bytes()));
+        p.stdin
+            .as_mut()
+            .map(|x| x.write_all(self.render_with_warning().as_bytes()));
 
         let output = p.wait_with_output().unwrap();
         let result = String::from_utf8(output.stdout).unwrap();
@@ -149,14 +179,13 @@ impl<'a> Template<'a> {
                         s => panic!("clipboard {:?} not configured", s),
                     }
                 }
-                None => panic!("clipboard not configured")
+                None => panic!("clipboard not configured"),
             }
         } else {
             // None
             panic!("no...");
         }
     }
-
 
     pub fn dirs(&self) -> HashMap<&str, PathBuf> {
         let mut h = HashMap::new();
@@ -170,7 +199,6 @@ impl<'a> Template<'a> {
         h
     }
 }
-
 
 impl<'a> Serialize for Template<'a> {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>

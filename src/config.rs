@@ -1,13 +1,12 @@
-use std::path::Path;
-use serde::ser::{Serialize, Serializer, SerializeStruct};
-use toml;
-use std::io::BufReader;
-use std::io::prelude::*;
+use serde::ser::{Serialize, SerializeStruct, Serializer};
 use std::fs::File;
+use std::io::prelude::*;
+use std::io::BufReader;
+use std::path::Path;
+use toml;
 
-
-use crate::util;
 use crate::errors;
+use crate::util;
 
 pub type Config = Option<toml::Value>;
 pub type Distro = Option<String>;
@@ -22,7 +21,7 @@ pub fn load_target_config(name: &str) -> errors::Result<Config> {
 pub enum Platform {
     Linux(Distro),
     Darwin,
-    Unknown
+    Unknown,
 }
 
 #[derive(Debug, Clone)]
@@ -68,5 +67,3 @@ impl Serialize for HostConfig {
         s.end()
     }
 }
-
-

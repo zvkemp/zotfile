@@ -1,7 +1,7 @@
-use serde::{Serialize, Deserialize};
-use git2::Repository;
-use git2::{ErrorCode, ErrorClass};
 use ansi_term::Colour;
+use git2::Repository;
+use git2::{ErrorClass, ErrorCode};
+use serde::{Deserialize, Serialize};
 
 use crate::errors;
 
@@ -18,23 +18,24 @@ pub struct RepoConfig {
 impl RepoConfig {
     pub fn go_do(&self) -> errors::Result<()> {
         let _ = match Repository::open(&self.path) {
-            Ok(repo) => { repo.find_remote("origin")?.fetch(&["master"], None, None)?; },
-            Err(e) => {
-                match e.code() {
-                    ErrorCode::NotFound => {
-                        println!("{} {}",
-                                 Colour::Green.bold().paint("Cloning"),
-                                 Colour::Cyan.bold().paint(&self.url));
-
-                        Repository::clone(&self.url, &self.path)?;
-                    },
-                    _ => panic!(e)
-                }
+            Ok(repo) => {
+                repo.find_remote("origin")?.fetch(&["master"], None, None)?;
             }
+            Err(e) => match e.code() {
+                ErrorCode::NotFound => {
+                    println!(
+                        "{} {}",
+                        Colour::Green.bold().paint("Cloning"),
+                        Colour::Cyan.bold().paint(&self.url)
+                    );
+
+                    Repository::clone(&self.url, &self.path)?;
+                }
+                _ => panic!(e),
+            },
         };
 
         // FIXME: checkout sha if given
         Ok(())
     }
-
 }

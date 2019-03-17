@@ -8,9 +8,9 @@ use std::path::PathBuf;
 use serde::Deserialize;
 
 use crate::config::{Config, HostConfig};
+use crate::errors;
 use crate::repo_config::RepoConfig;
 use crate::template::Template;
-use crate::errors;
 
 #[derive(Debug)]
 pub struct Module<'a> {
@@ -22,11 +22,11 @@ pub struct Module<'a> {
 
 #[derive(Debug, Deserialize)]
 struct AfterCommitHook {
-    shell: Option<String>
+    shell: Option<String>,
 }
 
-use std::process::Stdio;
 use std::process::Command;
+use std::process::Stdio;
 
 impl AfterCommitHook {
     pub fn process(&self) -> errors::Result<()> {
@@ -43,12 +43,12 @@ impl AfterCommitHook {
                             .spawn()?;
 
                         p.wait()?;
-                    },
-                    _ => ()
+                    }
+                    _ => (),
                 }
-            },
+            }
 
-            _ => ()
+            _ => (),
         };
         Ok(())
     }
@@ -57,7 +57,12 @@ impl AfterCommitHook {
 impl<'a> Module<'a> {
     pub fn new(name: &'a str, target_config: Config) -> errors::Result<Self> {
         let host_config = HostConfig::default();
-        let mut module = Module { host_config, name, target_config, module_config: None };
+        let mut module = Module {
+            host_config,
+            name,
+            target_config,
+            module_config: None,
+        };
         module.maybe_load_module_config()?;
         Ok(module)
     }
@@ -65,14 +70,13 @@ impl<'a> Module<'a> {
     fn maybe_load_module_config(&mut self) -> errors::Result<()> {
         let conf_path = format!("modules/{}/config.toml", self.name);
         let path = Path::new(&conf_path);
-        if !path.is_file() { return Ok(()); }
+        if !path.is_file() {
+            return Ok(());
+        }
 
-        let template = Template::new_from_file(
-            &conf_path,
-            &self.host_config,
-            &self.target_config,
-            &None,
-        )?.render();
+        let template =
+            Template::new_from_file(&conf_path, &self.host_config, &self.target_config, &None)?
+                .render();
 
         let module_config = template.parse::<toml::Value>()?;
 
@@ -97,14 +101,18 @@ impl<'a> Module<'a> {
                             let repo = r.clone().try_into::<RepoConfig>().expect("hmm");
                             repo.go_do().unwrap();
                         }
-                    },
-                    _ => { println!("No repos to clone, skipping"); }
+                    }
+                    _ => {
+                        println!("No repos to clone, skipping");
+                    }
                 }
                 // for repo in (&toml["repos"]).iter() {
                 //     dbg!(repo);
                 // }
-            },
-            _ => { println!("No repos to clone, skipping"); }
+            }
+            _ => {
+                println!("No repos to clone, skipping");
+            }
         }
 
         Ok(())
@@ -112,16 +120,14 @@ impl<'a> Module<'a> {
 
     fn process_after_commits(&self) -> Result<(), std::io::Error> {
         match self.module_config {
-            Some(ref toml) => {
-                match &toml.get("after_commit") {
-                    Some(toml::Value::Array(v)) => {
-                        for r in v.iter() {
-                            let hook = r.clone().try_into::<AfterCommitHook>().expect("hmm");
-                            hook.process();
-                        }
-                    },
-                    _ => {}
+            Some(ref toml) => match &toml.get("after_commit") {
+                Some(toml::Value::Array(v)) => {
+                    for r in v.iter() {
+                        let hook = r.clone().try_into::<AfterCommitHook>().expect("hmm");
+                        hook.process();
+                    }
                 }
+                _ => {}
             },
 
             _ => {}
@@ -165,9 +171,11 @@ impl<'a> Module<'a> {
         let file_exists = Path::new(target_path).is_file();
 
         if diff.is_empty() && file_exists {
-            println!("{} {}",
-                     Colour::Green.bold().paint(target_path),
-                     Colour::Cyan.bold().paint("is up to date."));
+            println!(
+                "{} {}",
+                Colour::Green.bold().paint(target_path),
+                Colour::Cyan.bold().paint("is up to date.")
+            );
 
             return Ok(());
         }
@@ -182,42 +190,47 @@ impl<'a> Module<'a> {
         child.wait().unwrap();
 
         if file_exists {
-            println!("{} {} {}",
-                     Colour::Yellow.paint("Apply changes?"),
-                     Colour::Green.bold().paint(target_path),
-                     Colour::Yellow.bold().paint("will be overwritten. [Y/n]"));
+            println!(
+                "{} {} {}",
+                Colour::Yellow.paint("Apply changes?"),
+                Colour::Green.bold().paint(target_path),
+                Colour::Yellow.bold().paint("will be overwritten. [Y/n]")
+            );
         } else {
-            println!("{} {} {}",
-                     Colour::Yellow.bold().paint(target_path),
-                     Colour::Green.bold().paint("does not yet exist. Proceed?"),
-                     Colour::Yellow.bold().paint("[Y/n]"));
+            println!(
+                "{} {} {}",
+                Colour::Yellow.bold().paint(target_path),
+                Colour::Green.bold().paint("does not yet exist. Proceed?"),
+                Colour::Yellow.bold().paint("[Y/n]")
+            );
         }
 
         let mut input = String::new();
 
         match io::stdin().read_line(&mut input) {
-            Ok(_n) => {
-                match input.as_str().trim() {
-                    "y" | "Y" => {
-                        println!("{}", Colour::Yellow.paint(format!("saving `{}`...", &target_path)));
-                        let path = Path::new(&target_path);
-                        mkdir_p(&path);
-                        let mut file = match File::create(&path) {
-                            Err(e) => panic!("couldn't create {}: {}", path.display(), e.description()),
-                            Ok(file) => file
-                        };
+            Ok(_n) => match input.as_str().trim() {
+                "y" | "Y" => {
+                    println!(
+                        "{}",
+                        Colour::Yellow.paint(format!("saving `{}`...", &target_path))
+                    );
+                    let path = Path::new(&target_path);
+                    mkdir_p(&path);
+                    let mut file = match File::create(&path) {
+                        Err(e) => panic!("couldn't create {}: {}", path.display(), e.description()),
+                        Ok(file) => file,
+                    };
 
-                        match file.write_all(template.render_with_warning().as_bytes()) {
-                            Err(e) => panic!("couldn't write {}: {}", path.display(), e.description()),
-                            Ok(_) => {
-                                println!("{}", Colour::Green.paint("Done!"));
-                                Ok(())
-                            }
+                    match file.write_all(template.render_with_warning().as_bytes()) {
+                        Err(e) => panic!("couldn't write {}: {}", path.display(), e.description()),
+                        Ok(_) => {
+                            println!("{}", Colour::Green.paint("Done!"));
+                            Ok(())
                         }
                     }
-                    _ => Ok(())
                 }
-            }
+                _ => Ok(()),
+            },
 
             Err(n) => {
                 println!("{}", Colour::Red.paint(format!("error: {}", n)));
@@ -228,9 +241,7 @@ impl<'a> Module<'a> {
 }
 
 fn mkdir_p(path: &Path) -> () {
-    dbg!(path.parent().map(|x| {
-        std::fs::create_dir_all(x)
-    }));
+    dbg!(path.parent().map(|x| { std::fs::create_dir_all(x) }));
 }
 
 #[cfg(test)]
