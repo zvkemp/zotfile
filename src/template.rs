@@ -106,6 +106,8 @@ impl<'a> Template<'a> {
         let o = match self.template_config {
             Some(ref c) => c.get("target_path"),
             _ => None,
+            _ => None,
+            _ => None,
         };
 
         o.expect("target_path should be in template frontmatter")

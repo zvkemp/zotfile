@@ -7,7 +7,9 @@ This is a WIP (use at your peril). For personal use, I need a configuration mana
 Usage:
 
 ```shell
-$ cargo run -- --target manjaro --module tmux
+$ cargo install --path .
+$ cd /path/to/config/repo
+$ zotfile --target manjaro --module tmux
 ```
 
 Prior to asking for confirmation, this will show a diff of the rendered template(s) and the current state of the target files.

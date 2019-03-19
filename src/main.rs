@@ -26,8 +26,15 @@ fn main() {
       (about: "Multi-target config manager")
       (@arg TARGET: -t --target +takes_value "target config toml file")
       (@arg MODULE: -m --module +takes_value "module to process")
+      (@arg REPODIR: -d --directory +takes_value "path to config repo (defaults to $PWD)")
     )
     .get_matches();
+
+    let repo_dir = matches
+        .value_of("REPODIR").map(|s| s.to_owned()).unwrap_or(".".to_owned());
+
+    // FIXME : normalize this path and use for config lookup
+    let repo_path = std::path::Path::new(&repo_dir);
 
     let args = matches.args;
     let module = args
@@ -42,6 +49,7 @@ fn main() {
         .vals
         .get(0)
         .unwrap();
+
     let target_config = config::load_target_config(target.to_str().unwrap()).unwrap();
     let module =
         Module::new(module.to_str().unwrap(), target_config).expect("couldn't load module config");

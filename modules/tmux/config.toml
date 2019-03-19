@@ -1,7 +1,0 @@
-[[repos]]
-url = "https://github.com/jimeh/tmux-themepack.git"
-path = "{{dirs.config}}/tmux-themepack"
-sha = "126151d"
-
-[[packages]]
-name = "tmux"
